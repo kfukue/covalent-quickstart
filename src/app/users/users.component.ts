@@ -1,48 +1,86 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, AfterViewInit, ViewContainerRef } from '@angular/core';
+import { Router } from '@angular/router';
+import { Title } from '@angular/platform-browser';
+import { MdSnackBar, MdSnackBarConfig } from '@angular/material';
 
-import { MD_LIST_DIRECTIVES } from '@angular2-material/list';
-import { MdIcon } from '@angular2-material/icon';
-import { Router, ROUTER_DIRECTIVES } from '@angular/router';
-import { MD_CARD_DIRECTIVES } from '@angular2-material/card';
-import { TD_LAYOUT_DIRECTIVES } from '@covalent/core';
+import { TdLoadingService, TdDialogService } from '@covalent/core';
 
-import { UsersService } from '../../services';
+import { UsersService, IUser } from '../../services';
 
 @Component({
-  moduleId: module.id,
   selector: 'qs-users',
   templateUrl: 'users.component.html',
-  styleUrls: ['users.component.css'],
-  directives: [
-    MD_LIST_DIRECTIVES,
-    ROUTER_DIRECTIVES,
-    MdIcon,
-    TD_LAYOUT_DIRECTIVES,
-    MD_CARD_DIRECTIVES,
-  ],
+  styleUrls: ['users.component.scss'],
   viewProviders: [ UsersService ],
 })
-export class UsersComponent implements OnInit {
+export class UsersComponent implements AfterViewInit {
 
-  users: Object[];
+  private _snackBarConfig: MdSnackBarConfig;
 
-  constructor(private router: Router, private usersService: UsersService) {}
+  users: IUser[];
+  filteredUsers: IUser[];
+
+  constructor(private _titleService: Title,
+              private _router: Router,
+              private _loadingService: TdLoadingService,
+              private _dialogService: TdDialogService,
+              private _snackBarService: MdSnackBar,
+              private _usersService: UsersService,
+              viewContainerRef: ViewContainerRef) {
+    this._snackBarConfig = new MdSnackBarConfig(viewContainerRef);
+  }
 
   goBack(route: string): void {
-    this.router.navigate(['/']);
+    this._router.navigate(['/']);
   }
 
-  userClick(id: string): void {
-    alert('clicked on user: ' + id);
-  }
-
-  ngOnInit(): void {
+  ngAfterViewInit(): void {
+    this._titleService.setTitle( 'Covalent Users' );
     this.loadUsers();
   }
 
-  loadUsers(): void {
-    this.usersService.query().subscribe((users: Object[]) => {
-      this.users = users;
+  filterUsers(displayName: string = ''): void {
+    this.filteredUsers = this.users.filter((user: IUser) => {
+      return user.display_name.toLowerCase().indexOf(displayName.toLowerCase()) > -1;
     });
   }
+
+  loadUsers(): void {
+    this._loadingService.register('users.list');
+    this._usersService.query().subscribe((users: IUser[]) => {
+      this.users = users;
+      this.filteredUsers = users;
+      this._loadingService.resolve('users.list');
+    }, (error: Error) => {
+      this._usersService.staticQuery().subscribe((users: IUser[]) => {
+        this.users = users;
+        this.filteredUsers = users;
+        this._loadingService.resolve('users.list');
+      });
+    });
+  }
+
+  deleteUser(id: string): void {
+    this._dialogService
+      .openConfirm({message: 'Are you sure you want to delete this user?'})
+      .afterClosed().subscribe((confirm: boolean) => {
+        if (confirm) {
+          this._loadingService.register('users.list');
+          this._usersService.delete(id).subscribe(() => {
+            this.users = this.users.filter((user: IUser) => {
+              return user.id !== id;
+            });
+            this.filteredUsers = this.filteredUsers.filter((user: IUser) => {
+              return user.id !== id;
+            });
+            this._loadingService.resolve('users.list');
+            this._snackBarService.open('User deleted', 'Ok', this._snackBarConfig);
+          }, (error: Error) => {
+            this._dialogService.openAlert({message: 'There was an error'});
+            this._loadingService.resolve('users.list');
+          });
+        }
+      });
+  }
+
 }
